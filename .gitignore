@@ -1,0 +1,12 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Server scripts
+start_backend.cmd
+start_frontend.cmd
+
+# Node (frontend only)
+node_modules/
+dist/
