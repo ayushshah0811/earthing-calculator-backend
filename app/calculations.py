@@ -6,9 +6,6 @@ def calculate_earthing(data):
     ρ = data.earth_resistivity
     ISC = data.fault_current
     T = data.fault_clearing_time
-
-    r = data.rod_radius_m
-    h = data.rod_length_m
     NP = data.number_of_pits
 
     WS = data.strip_width_mm / 1000
@@ -19,46 +16,103 @@ def calculate_earthing(data):
     material = data.strip_material.upper()
     K = MATERIAL_CONSTANTS[material]
 
-    # --- PART A: Heat Dissipation ---
+    earthing_type = data.earthing_type
+
+    # ======================================================
+    # PART A: Heat Dissipation
+    # ======================================================
 
     I_perm = (7.57 * 1000) / math.sqrt(ρ * T)
     required_area = ISC / I_perm
 
-    rod_area = 2 * math.pi * r * (h + r) * NP
+    # ---------- Electrode Area ----------
+    if earthing_type == "pipe":
+        r = data.rod_radius_m
+        h = data.rod_length_m
+
+        electrode_area = 2 * math.pi * r * (h + r) * NP
+
+    elif earthing_type == "plate":
+        Lp = data.plate_length_mm / 1000
+        Wp = data.plate_width_mm / 1000
+        Tp = data.plate_thickness_mm / 1000
+
+        long_side_area = 2 * (Lp * Wp)
+        thin_side_area = 4 * (Lp * Tp)
+        plate_area_each = long_side_area + thin_side_area
+
+        electrode_area = plate_area_each * NP
+
+    else:
+        raise ValueError("Invalid earthing type")
+
+    # ---------- Strip Area ----------
     strip_area = (2 * (WS + TS) * LS) * NS
-    net_area = rod_area + strip_area
+    net_area = electrode_area + strip_area
 
     heat_status = "Acceptable" if net_area > required_area else "Not Acceptable"
 
-    # --- PART B: Strip Cross Section ---
+    # ======================================================
+    # PART B: Strip Cross Section
+    # ======================================================
 
     min_strip_area = (ISC * math.sqrt(T)) / K
     selected_strip_area = (data.strip_width_mm * data.strip_thickness_mm) * NS
 
-    strip_status = "Acceptable" if selected_strip_area > min_strip_area else "Not Acceptable"
+    strip_status = (
+        "Acceptable"
+        if selected_strip_area > min_strip_area
+        else "Not Acceptable"
+    )
 
-    # --- PART C: Earthing Resistance ---
+    # ======================================================
+    # PART C: Earthing Resistance
+    # ======================================================
 
-    # Rod resistance
-    L_cm = h * 100
-    D_cm = data.rod_diameter_mm / 10
+    # ---------- Electrode Resistance ----------
+    if earthing_type == "pipe":
+        h = data.rod_length_m
+        L_cm = h * 100
+        D_cm = data.rod_diameter_mm / 10
 
-    R_rod_each = (100 * ρ / (2 * PI * L_cm)) * math.log((2 * L_cm) / D_cm)
-    R_rod_parallel = R_rod_each / NP
+        R_electrode_each = (
+            (100 * ρ / (2 * PI * L_cm))
+            * math.log((2 * L_cm) / D_cm)
+        )
 
-    # Strip resistance
+    elif earthing_type == "plate":
+        Lp = data.plate_length_mm / 1000
+        Wp = data.plate_width_mm / 1000
+
+        plate_area = Lp * Wp
+        R_electrode_each = (ρ / 4) * math.sqrt(PI / plate_area)
+
+    R_electrode_parallel = R_electrode_each / NP
+
+    # ---------- Strip Resistance ----------
     Ls_cm = LS * 100
     d_cm = data.strip_width_mm / 10
 
-    R_strip_each = (100 * ρ / (2 * PI * Ls_cm)) * math.log((4 * Ls_cm) / d_cm)
+    R_strip_each = (
+        (100 * ρ / (2 * PI * Ls_cm))
+        * math.log((4 * Ls_cm) / d_cm)
+    )
     R_strip_parallel = R_strip_each / NS
 
-    # Net resistance
-    net_resistance = (R_rod_parallel * R_strip_parallel) / (
-        R_rod_parallel + R_strip_parallel
+    # ---------- Net Resistance ----------
+    net_resistance = (
+        R_electrode_parallel * R_strip_parallel
+    ) / (
+        R_electrode_parallel + R_strip_parallel
     )
 
-    resistance_status = "Acceptable" if net_resistance < 4 else "Not Acceptable"
+    resistance_status = (
+        "Acceptable" if net_resistance < 4 else "Not Acceptable"
+    )
+
+    # ======================================================
+    # OVERALL RESULT
+    # ======================================================
 
     overall = (
         "PASS"
@@ -68,6 +122,7 @@ def calculate_earthing(data):
 
     return {
         "standard": STANDARD,
+        "earthing_type": earthing_type.capitalize(),
         "summary": [
             {
                 "description": "Net Heat Dissipation Area Available",
